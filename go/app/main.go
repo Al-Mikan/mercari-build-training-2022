@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -33,45 +34,61 @@ func root(c echo.Context) error {
 	return c.JSON(http.StatusOK, res)
 }
 func getItems(c echo.Context) error {
-	//jsonをGoに持ってきている
-	jsonFromFile, err := os.ReadFile("./items.json")
-
+	// jsonをGoに持ってきている
+	// データベースのコネクションを開く
+	db, err := sql.Open("sqlite3", "../db/mercari.sqlite3")
 	if err != nil {
-		c.Logger().Error("Notfound ./items.json")
+		panic(err)
 	}
-	//jsonを構造体に変換
-	var els itemlist
-	err = json.Unmarshal(jsonFromFile, &els)
 
-	return c.JSON(http.StatusOK, els)
+	// 複数レコード取得 データベースへクエリを送信
+	rows, err := db.Query("select name, category from items")
+	if err != nil {
+		panic(err)
+	}
+	// 処理が終わったらカーソルを閉じる
+	defer rows.Close()
+	var els itemlist
+
+	// 行セットに対して繰り返し処理
+	for rows.Next() {
+		var name string
+		var category string
+		err := rows.Scan(&name, &category)
+		if err != nil {
+			c.Logger().Error("error occured while scan rows:%s", err)
+		}
+		r_json := item{Name: name, Category: category}
+		els.Items = append(els.Items, r_json)
+	}
+	return c.JSON(http.StatusOK, els.Items)
+
 }
 
 func addItem(c echo.Context) error {
 	// Get form data
 	name := c.FormValue("name")
 	category := c.FormValue("category")
-	newItem := item{Name: name, Category: category}
-	//jsonをGoに持ってきている
-	jsonFile, err := os.ReadFile("./items.json")
-	//error処理
+	db, err := sql.Open("sqlite3", "../db/mercari.sqlite3")
 	if err != nil {
-		c.Logger().Error("Notfound ./items.json")
+		c.Logger().Error("error occured open database:%s", err)
 	}
 
-	var els itemlist
-	//jsonを構造体に変換
-	err = json.Unmarshal(jsonFile, &els)
+	rows, err := db.Prepare("insert into items(name,category) values(?,?);")
 	if err != nil {
-		c.Logger().Error("error occured while unmarshalling json")
+		c.Logger().Error("error occured while prepare database:%s", err)
 	}
-	//els.Itemsに新しく追加
-	els.Items = append(els.Items, newItem)
-	file, _ := json.MarshalIndent(els, "", " ")
-	os.WriteFile("./items.json", file, 0644)
+	_, err = rows.Exec(name, category)
+	if err != nil {
+		c.Logger().Error("error occured while insert database:%s", err)
+	}
+	// 処理が終わったらカーソルを閉じる
+	defer rows.Close()
 
 	message := fmt.Sprintf("item received: %s,category: %s", name, category)
-
-	return c.JSON(http.StatusOK, Response{Message: message})
+	res := Response{Message: message}
+	fmt.Print(1)
+	return c.JSON(http.StatusOK, res)
 }
 
 func getImg(c echo.Context) error {
@@ -110,7 +127,7 @@ func main() {
 	e.GET("/", root)
 	e.GET("/items", getItems)
 	e.POST("/items", addItem)
-	e.GET("/image/:itemImg", getImg)
+	// e.GET("/image/:itemImg", getImg)
 
 	// Start server
 	e.Logger.Fatal(e.Start(":9000"))
