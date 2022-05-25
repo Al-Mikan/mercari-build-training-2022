@@ -1,0 +1,1 @@
+CREATE TABLE items(id integer PRIMARY KEY AUTOINCREMENT,category_id integer, name text, image);
