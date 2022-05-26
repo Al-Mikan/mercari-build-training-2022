@@ -81,7 +81,31 @@ func addItem(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, res)
 }
+func searchName(c echo.Context) error {
+	keyword:=c.QueryParam("keyword")
+	db,err := sql.Open("sqlite3", "../db/mercari.sqlite3")
+	if err !=nil{
+		c.Logger().Error("error occured while opening database:%s",err)
+	}
+	print(keyword)
+	rows, err := db.Query("select * from items glob '*%s*'", keyword)
+  if err !=nil{
+		c.Logger().Error("error occured while search DB:%s",err)
+	}
+	defer rows.Close()
 
+	//格納するitemlist
+	var result itemlist
+	//一行ずつ実行
+	for rows.Next(){
+		var category string
+		var name string
+		rows.Scan(&name,&category)
+		r_json:=item{Name: name, Category: category}
+		result.Items = append(result.Items, r_json)
+	}
+	return c.JSON(http.StatusOK, result.Items)
+}
 func getImg(c echo.Context) error {
 	// Create image path
 	imgPath := path.Join(ImgDir, c.Param("imageFilename"))
@@ -117,6 +141,7 @@ func main() {
 	// Routes
 	e.GET("/", root)
 	e.GET("/items", getItems)
+	e.GET("/search", searchName)
 	e.POST("/items", addItem)
 	e.GET("/image/:imageFilename", getImg)
 
